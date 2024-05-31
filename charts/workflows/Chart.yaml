@@ -14,3 +14,7 @@ dependencies:
     repository: http://charts.bitnami.com/bitnami
     version: 14.0.12
     condition: postgresql-ha.enabled
+  - name: oauth2-proxy
+    repository: https://oauth2-proxy.github.io/manifests
+    version: 7.1.0
+    condition: oauth2-proxy.enabled

@@ -22,15 +22,7 @@ argo-workflows:
         serviceAccountName: argo-workflow
   server:
     replicas: 3
-    authModes: ["sso"]
-    sso:
-      enabled: true
-      issuer: https://authbeta.diamond.ac.uk/cas/oidc
-      rbac:
-        enabled: true
-    extraEnv:
-      - name: SSO_DELEGATE_RBAC_TO_NAMESPACE
-        value: "true"
+    authModes: ["client"]
 
 postgresql-ha:
   enabled: true
@@ -56,10 +48,71 @@ postgresql-ha:
         cpu: 1000m
         memory: 512Mi
   persistence:
-    storageClass: db-nvme-storage
+    storageClass: netapp
     size: 50Gi
 
-ingress:
+oauth2-proxy:
   enabled: true
-  host: workflows.diamond.ac.uk
-  path: /
+  replicaCount: 3
+  ingress:
+    enabled: true
+    hostname: workflows.diamond.ac.uk
+    pathType: Prefix
+    hosts:
+      - workflows.diamond.ac.uk
+    path: /
+  config:
+    configFile: |-
+      email_domains = [
+        "*"
+      ]
+      skip_auth_routes = [
+        "GET=^/api"
+      ]
+  alphaConfig:
+    enabled: true
+    configFile: |-
+      upstreamConfig:
+        upstreams:
+        - id: argo-workflows-server
+          path: /
+          uri: http://{{ .Release.Name }}-argo-workflows-server:2746
+      injectRequestHeaders:
+      - name: Authorization
+        values:
+        - claim: id_token
+          prefix: "Bearer "
+      injectResponseHeaders:
+      - name: Identity
+        values:
+        - claim: id_token
+      providers:
+        - provider: oidc
+          scope: "openid profile email fedid"
+          clientId: workflows-argo-server
+          clientSecretFile: /etc/alpha/client-secret
+          id: authn
+          oidcConfig:
+            issuerURL: https://authn.diamond.ac.uk/realms/master
+            insecureAllowUnverifiedEmail: true
+            audienceClaims:
+            - aud
+            emailClaim: email
+            userIDClaim: sub
+  extraArgs:
+  - --cookie-refresh=55s
+  redis:
+    enabled: true
+  sessionStorage:
+    type: redis
+  extraVolumes:
+  - name: client-secret
+    secret:
+      secretName: argo-server-sso
+      items:
+      - key: client-secret
+        path: client-secret
+  extraVolumeMounts:
+  - name: client-secret
+    mountPath: /etc/alpha
+    readOnly: true
